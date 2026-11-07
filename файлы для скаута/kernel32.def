@@ -1,0 +1,16 @@
+LIBRARY kernel32.dll
+EXPORTS
+CreateFileA
+WriteFile
+CloseHandle
+GetModuleHandleA
+GetProcAddress
+GetModuleFileNameA
+CreateThread
+Sleep
+GetTickCount64
+GetCurrentProcessId
+LoadLibraryA
+GetSystemDirectoryA
+GetCommandLineA
+AddVectoredExceptionHandler
