@@ -1,0 +1,234 @@
+HHBC mod - change log (newest entries at the end)
+====================================================
+
+HHBC mod - пакет "данные + автоприём в двух режимах"
+Распаковать поверх проекта (с заменой). Release | x64 -> version.dll -> в папку игры.
+
+Изменено: dump.cpp, spy.cpp, features.cpp, overlay.cpp, dllmain.cpp, common.h
+Что в меню (Insert):
+  Orders  - Auto-accept: сам выбирает режим (хост/соло или клиент), показывает последний режим.
+  World   - кнопка FULL DUMP (внутри смены!) -> hhbc_details/kitchen/recipes/world .txt в папке игры.
+  Debug   - Spy ON + кнопки MARK: grill/board/drink/fryer/oven/bag (метки в логе).
+  Kitchen - чек-лист, что делать руками.
+
+==== UPDATE 4 ====
+* New file lab.cpp (add to project - already in the .vcxproj).
+* Orders: client-mode now also recognises variant recipes ("... (No BBQ)") via levelVariantRecipes.
+* Lab tab: 1 take item from box, 2 drop onto grill, 3 toggle grill, 4 cooked patty -> board, 5 report.
+  Everything uses YOUR player's PlayerID (no NPC calls). Turn Spy ON first to see how the game reacts.
+* Keys tab: key binds for every toggle and lab step. Default: none (only the menu key = Insert).
+  Click a row, press a key/mouse button. Esc while waiting clears it (menu key -> Insert).
+  Saved in hhbc_binds.ini next to the game exe.
+
+---- update 4b ----
+* Lab: live, labelled list of ingredient boxes ("Box name -> spawned item"), click to select.
+* Lab 2 now picks RAW MEAT from the inventory (before it always took slot 1 = the bun).
+* Lab 2/4 "throw": LocalDrop + game's LocalTeleport above the target + downward velocity +
+  lastLocalThrowTime stamp, so the board/grill physics see a real throw.
+
+==== UPDATE 5 ====
+Kitchen tab = auto-cook lists (jobs). Each click starts an independent list; they run in parallel.
+  Burgers: one button per raw patty type found in the boxes ("Auto-cook: Raw Beef Patty", ...).
+           take -> throw on grill (grill switched on if needed) -> wait COOKED -> inventory (default) or board.
+           Two toggles choose the destination (inventory default; both off = leave on the grill).
+  Sides:   cookies+pies batch (2 trays, 2 oven slots), french fries, nuggets (fryer baskets),
+           "X -> bag" buttons take from the dump station and throw into the bag.
+  Drinks:  six soda buttons + "Soda needed in the order" (cup -> machine -> select -> ice -> soda -> bag).
+  CANCEL ALL JOBS stops everything.
+Every step is written to the Spy console / hhbc_mod.log as "MOD >> ..." (Spy ON shows the game's own reaction too).
+Shakes and the full auto mode are NOT done yet.
+
+=== UPDATE 5 FIX ===
+- Hand lock: only one list at a time takes an item and throws it (only the held item can be dropped).
+- Grill: toggled only if cookTime stops advancing (once per list, with cooldown); max 6 patties on the grill.
+- Nuggets: box "Nugs Bag" is now found. Cups: taken from the 'Empty Soda Cup' box.
+- Oven: free slot chosen first, door opened, bottom slot throw at trigger centre (was landing in the top trigger); cookie and pie trays go to different slots.
+- Message "dump station is empty (cook it first)" instead of "no food source".
+
+=== UPDATE 6 ===
+Fixes from the update-5 log:
+- Cups: soda/shake cups are ScytheCupDispenser objects ('Empty Soda Cup' / 'Empty Shake Cup'), not ingredient boxes - now taken from there.
+- Grill: no more blind Toggle() (the game ignored fast toggles and the old heuristic could switch the grill OFF). A toggle is sent only when the
+  grill state is OFF, with a global cooldown. A patty that is still in the inventory when thrown is made the active item first (HotbarGrab) and dropped again.
+- Finished drinks/shakes/burgers lying in the world are picked up (HotbarGrab) before they are thrown into the bag. One SpawnBag at a time.
+New:
+- SHAKES (Kitchen tab): Strawberry / Blueberry / "Shake in the order": cup from the dispenser -> into the shake machine -> slide the cup ->
+  lever (PourStrawberry / PourBlueberry) -> finish the pour -> shake into the bag. Everything in the Spy log as MOD >> ...
+- ALPHA COOKING (Lab tab and Kitchen tab, bind "Alpha cooking"): reads the order of the register nearest to you, opens a bag, starts every
+  side/drink job, cooks the patties on the grill (kept cooked until needed), builds each burger on the nearest board bottom -> top
+  (boxes + sauce dispensers), checks that the board shows the recipe, presses FinishBurger and throws the burger into the bag.
+  Every item that fails is skipped and reported. "Cancel all kitchen jobs" has its own bind too (Keys tab).
+
+=== UPDATE 7 (patty / inventory fix) ===
+Bug: a patty taken for "Auto-cook" stayed in the inventory (a "phantom" slot) although it had been thrown onto the grill.
+Cause: the mod let go of the object with GenericObject.LocalDrop(), which does not always free the player's hotbar slot
+(ScytheNetworkPlayer.gameObjectsInInventory), and a patty that was stashed (not the active item) could not be dropped at all.
+Fix (lab.cpp, used by EVERY throw: grill, board, bag, fryer, oven, drink/shake machines, sauces):
+- before the drop: if the item is stashed -> SwitchToSlot(its slot);
+- after the drop: the slot is freed with GenericObject.RemoveFromHotbar(), then NotifyHotbarItemRemoved(), and only as a last
+  resort the slot is cleared by force + RefreshHotbarUI. Every step is in hhbc_mod.log ("hotbar slot freed ...", "still in hotbar=0/1").
+- patty on the grill: the job moves on only when the grill tracks the patty AND the inventory slot is free (otherwise it frees it / throws again).
+- destination "assembly board": the job now checks that the board really got the patty (board ingredient count / object consumed),
+  throws again up to 3 times and reports honestly instead of "DONE" when nothing happened.
+- a patty job that fails before cooking puts the raw patty down next to you instead of leaving it in the inventory.
+- other fixes: waits 4.5 s (was 2.5 s) for an item to appear in the hotbar on a laggy server; after an internal error the hand lock is reset.
+Destination toggles are unchanged: "Done patty -> inventory" (default) / "-> assembly board" / both off = stays on the grill.
+
+=== UPDATE 8 ===
+1. SHAKE: the cup was always slid to the right (blueberry) nozzle. Now: left nozzle (red, strawberry) = cup position 0,
+   right nozzle (blue, blueberry) = cup position 1. The job reads ShakeMachine.anchorIndex, slides the cup only if it is not under
+   the wanted nozzle (each press on the cup moves it 0 <-> 1), re-checks it before and during the pour.
+2. NEAREST STATIONS: every job remembers where YOU stood when it was started (all sub-jobs of ALPHA inherit that point) and picks
+   everything nearest to it: ingredient boxes, grill, fryer (+ its trigger / knob / baskets), oven (+ triggers), drink machine
+   (+ its buttons), shake machine, cup dispensers, dump stations, the assembly board, the sauce dispensers and the BAG.
+   A shake / burger / soda therefore goes into the bag next to you, not into some other bag on the map.
+3. ORDER SOURCE: ALPHA / "Shake of the accepted order" / "Soda of the accepted order" read the orders that were ACCEPTED
+   (OrderManager.activeOrders, oldest first), not the text on the register. An order that alpha already builds is not taken twice
+   (a failed alpha releases its order). Only if no accepted order is available the register text is used as a fallback.
+4. PATTY -> BOARD: a cooked patty lying on the grill cannot be thrown (LocalDrop only works for a HELD item), so before the
+   throw it is taken into the hand (HotbarGrab) and thrown from there, like a player does. The board is watched every tick; the
+   patty is re-thrown only after ~1.1 s without effect. Faster waits everywhere (60 ms job tick, boxes / board / sauces / bag polled
+   every tick instead of waiting a fixed time).
+5. Found in the log: "could not take the cooked patty" happened when the hand was busy (fire extinguisher in use) or when the patty was
+   already taken by something else - the job now says what happened and counts "patty used by the board / bag" as success.
+
+=== UPDATE 9 ===
+Soda: the empty cup is now dropped 0.15 m above the drink-machine trigger (was 0.35 m, a little too high); every retry goes 5 cm lower.
+The shake machine is unchanged (0.35 m).
+
+=== UPDATE 10 ===
+1. FRYER: lifting the basket is only the first press. A second press on the lifted basket empties it into the dump station
+   (FryerBasket.RetrieveBasketInternal, seen in the spy log). The job now does both: lift -> retrieve -> checks that the basket's "filled" flag cleared.
+   If the game lifted the basket by itself the job goes straight to the retrieve press.
+2. ORDERS: accepted orders are told apart by the CustomerOrder OBJECT (not id/content), so the same order coming 5 times is built 5 times.
+   An order is "taken" until it leaves OrderManager.activeOrders. Soda/shake "of the accepted order" use the oldest order alpha is not building.
+
+=== UPDATE 11 (backrooms) ===
+Alpha now understands the BACKROOMS recipes (ids from the dump): 'Raw Burger' / 'Raw Pork|Fish|Chicken Patty' = an UNCOOKED patty taken from its box and
+thrown straight onto the board; 'Burnt Burger' = a patty that is left on the grill until it BURNS (Meat state 2) and then goes to the board;
+'Cooked Burger' / 'Pork Patty' / 'Cooked Fish|Chicken Patty' = cooked as before. (Before, raw patties were cooked and 'Raw Burger' stopped alpha.)
+Ingredient throws on the board: 2.5 cm lower (0.425 m), on a retry the target shifts 1-3 cm left/right/forward/back, up to 6 tries; a throw
+counts as done also when the board consumed the object (the ingredient list is sometimes late). Finished soda: the cup we threw in is also accepted
+if it was renamed into the drink.
+
+=== UPDATE 12 (BETA) ===
+LAB TAB CLEANED UP: the old numbered steps and the box list are gone. The tab now has BETA CLOSEOUT, ALPHA COOKING, CANCEL JOBS, the job list and the log tail.
+New key bind (Keys tab): "Beta closeout (after-shift duties)".
+
+BETA CLOSEOUT looks at the closeout duties that are ACTIVE and not complete (CloseoutDuty.dutyActive / dutyComplete) and does them one by one,
+with the local player's own actions only (no NPC methods). Every step is written to Spy as "closeout: ...". At the start it lists the active duties.
+  - Thermostats: reads targetTemp / actualTemp, presses the up / down ThermostatButton every 0.45 s until isMatched. If the value moves the wrong way
+    the buttons are swapped automatically.
+  - Rat traps: RatTrap.Interact on every triggered trap.
+  - Turn off appliances: presses the fryer knob (FryerControl) / oven knob (Top/BottomKnobControl) until the state is Off.
+  - Trash bags, kitchen trash, grease buckets: HotbarGrab, throw above the nearest TrashDisposalZone, wait until the object is gone / completed;
+    a retry uses the next zone and a slightly shifted point.
+  - Restock: every RestockBox is thrown into the StorageZone whose name matches the box best (names are written to Spy), retries use the next zone.
+  - Napkins: NapkinBox thrown onto the dispenser that needs a refill. Air filters: a clean AirFilterItem thrown onto the AC unit without a filter.
+    (never seen in a real run - guessed from the class dump; Spy shows what happens)
+  - Fires (EXPERIMENTAL): takes the FireExtinguisher, calls Use() and sends the spray ray (ServerUpdateSprayRay) down onto each fire until it is extinguished.
+A task that fails 3 times is switched off for the run, a single object that fails 5 times is skipped. The job ends when all duties are complete
+(or after 25 s with nothing the mod can do, listing what is left). CANCEL JOBS stops it.
+
+
+=== UPDATE 13 (BOOK MENU) ===
+The menu is now a paper book. Two images are embedded in the DLL as resources (hhbc_ui.rc, ui_book.png = the book page, ui_btn*.png / ui_sl_*.png = button and slider pieces).
+ADD hhbc_ui.rc and all ui_*.png (15 files) to the project folder (they are in the zip); the vcxproj already has <ResourceCompile Include="hhbc_ui.rc" />.
+The six bookmarks are the pages: Player, Orders, World, Kitchen, Lab, Debug / Keys. Left page = controls, right page = status, jobs, log, key binds.
+The whole book is drawn in 1536x1024 book pixels and scaled to the window (GUI.matrix), so it fits any window size. Selected toggles are the dark button.
+If a texture cannot be created (resource missing, ImageConversion module stripped, a method renamed) the log says "book: ..." and the old grey menu is used.
+
+UPDATE 13b: the game strips unused engine methods (DrawTextureWithTexCoords, Button/3, HorizontalSlider/6 do not exist). The book now draws whole piece textures with GUI.DrawTexture, and the real
+GUI.Button / slider are drawn fully transparent (GUI.color alpha 0) just to catch the mouse. If a needed method is missing the log lists all GUI methods ("book-diag: ...").
+
+UPDATE 14: the bookmarks are now their own image (ui_tab.png) drawn BEHIND the page; the selected one slides up and is bright, the others are darker (lighter on hover). Book without tabs = new ui_book.png.
+
+UPDATE 15 (VISUAL TAB, AUTO TAB WIDTH)
+New "Visual" bookmark (before "Debug / Keys", which always stays the last one):
+  - Fullbright: RenderSettings ambient mode Flat + white ambient light + fog off, re-applied 3x a second; switching it off restores the game's own values.
+  - ESP: enemies (CorruptedChef, Cultist, ViolentCultist, Mechanoid, KhyvinDemonAI, JoyAsset, HappyAssetAI, NullPhantom, ParagonCleaner; hidden when their 'dead' flag is set)
+    and objects (RatTrap, GreaseBucket, RestockBox, CloseoutTrashBag, KitchenTrashItem, NapkinBox, AirFilterItem, FireExtinguisher). Each gets a text label with name and distance
+    drawn at its screen position (Camera.WorldToScreenPoint). Labels are drawn even when the menu is closed. The object list is refreshed once a second.
+  - Only drawing is changed on your screen, nothing is sent to the game. If a needed engine method is stripped, the log has a line starting with "visual:" and the feature stays off.
+Bookmarks are now data driven and split over the two pages; their width shrinks automatically when more tabs are added (Debug / Keys stays last).
+No new files: only overlay.cpp and common.h changed.
+
+UPDATE 16: bookmarks are full width and partly overlap like in a real book; the one under the mouse slides out on top, the selected one stays raised.
+Order: Player, Orders, Visual, World, Lab, Kitchen, Debug / Keys (Debug / Keys always last). Only overlay.cpp changed.
+
+UPDATE 17: ALPHA COOKING
+  - A failed part of the order is now REPEATED instead of skipped: drinks / shakes / fries / nuggets / trays / bag jobs (up to 8 repeats per order),
+    burger tasks (ingredient, sauce, patty, bagging the finished burger: up to 3 repeats each). Every repeat is written to Spy ("REPEATING").
+    Only if the repeats run out the item is skipped and the bag is left OPEN (so a wrong order is never handed over).
+  - When everything is in the bag the mod now CLOSES it (BaggingSystem.FinishBag, the same call as the bag bell), finds the new "To-Go Bag",
+    takes it and throws it onto the FulfillmentWindow whose type matches the bag (BaggedOrder.intendedWindowType == FulfillmentWindow.orderWindowType),
+    retrying on the next window if needed. The job is DONE when the bag is gone. Spy lines: "FinishBag", "finished bag", "bag type=.. -> window type=..".
+  - Only lab.cpp and README.txt changed.
+  - Fix (17b): the selected bookmark no longer hides the text of the next bookmark (only the hovered one slides over its neighbours). overlay.cpp changed too.
+
+UPDATE 18 (fixes from the log of beta 17)
+  - Soda: finished drink is recognised by the CANONICAL drink name ("Swimmers Choice"); the order text says "Swimmer's Choice" (with an apostrophe) and
+    it never matched, so an EMPTY cup lying next to the machine was taken as the drink. Empty cups are now never taken as a finished drink.
+  - Soda cups are made strictly one after another: the next cup is taken only when the previous drink has left the machine ("machine did not take the cup" fixed).
+  - If a drink bag job still holds an empty cup, the drink is made again instead of throwing the cup into the bag over and over.
+  - A failed bag job puts the wrong item down next to the player (it no longer stays in the hotbar).
+  - Burnt patties: patties of the 2nd, 3rd... burger of an order start cooking only when the previous burger has taken its last patty (they used to wait on the
+    grill and burn). If a waiting patty burns anyway it is taken off, thrown into the trash and a NEW patty is cooked (repeat logic of update 17).
+  - Only lab.cpp and README.txt changed.
+
+UPDATE 19: faster BETA CLOSEOUT
+  - Pause between two tasks 0.3 s -> 0.06 s; grabbing an object 0.6 s -> 0.4 s; wait before a retry throw 1.6 s -> 1.2 s (the check "delivered?" runs every tick anyway).
+  - Rat traps and appliances: the result is checked every 0.2 s (it used to wait 1.5 s / 1.1 s), the button is pressed again only after the old pause.
+  - Thermostat presses every 0.3 s (was 0.45 s). If the game ignores the faster presses, tell me and it goes back.
+  - Only lab.cpp and README.txt changed.
+
+UPDATE 20
+  - ALPHA STOCK LOGIC: before cooking fries / nuggets / cookies / pies the order looks at the dump station (friesAmount, nuggetsAmount, cookiesAmount, piesAmount).
+    If enough is already there it is NOT cooked again - the items are bagged at once. Spy line: "already in the dump station ... not cooked again".
+  - New Lab buttons: "STOCK: cook the missing fries / nuggets / cookies / pies" (one batch of every side that is empty, nothing is cooked twice)
+    and the toggle "Alpha keeps the stock ready after each order" (default OFF): after the bag is handed over, the missing sides are cooked for the next order.
+  - ALPHA FASTER: the soda machine steps are polled every tick instead of fixed waits (cup loaded, drink selected, ice, pour), bag opening / first take polled.
+    A soda cycle is about 5-6 s instead of about 10 s. Together with the stock logic orders with sides no longer wait for the oven / fryer.
+  - BETA CLOSEOUT ~25-30% faster: the hotbar is polled every tick after a grab (no fixed 0.4 s wait).
+  - Files changed: lab.cpp, overlay.cpp, common.h, README.txt.
+
+UPDATE 21 (fixes from the Happy Burger Farm log)
+  - SAUCE FAILURES ("the sauce was not added", e.g. Happy's Deluxe): the plan started with the sauces, i.e. the recipe list was read in the wrong direction and
+    the sauce was squirted onto an EMPTY board. The direction is now decided by the positions of the bottom / top bun in the list. Sauces that would still be first
+    are put behind the first real ingredient. Spy writes the recipe ids "as stored" for every burger ("alpha: recipe ... ids (as stored): ...") - if a burger is
+    still wrong, send that line.
+  - SODA "machine did not take the cup": the next cup was thrown while the previous finished drink still stood in the machine (it blocks the trigger).
+    Now the next cup waits until the finished drink has really been taken out.
+  - STOCK / trays: two trays are no longer taken and thrown at the same time ("oven did not take the tray" when cookies and pies started together).
+  - Only lab.cpp and README.txt changed.
+
+UPDATE 22
+ - ALPHA: new switch in Lab tab "Alpha orders: normal only / normal + DRIVE-THRU". Default = normal orders only;
+   drive-thru orders are skipped. The Spy log marks drive-thru orders.
+ - Player tab: "Infinite jump" and "Jump height multiplier" (x0.5..x5). Originals are restored when switched off.
+   ECM2.Character is not in the class dump, so its jump members are found at runtime; the log gets lines
+   starting with "jump:" - if jumping does not change, send hhbc_mod.log.
+
+UPDATE 23
+ - Orders bookmark: accepted orders now hang on the right page as the game's own tickets
+   (red = normal, blue = drive-thru, orange = pickup, darker = evil), 4 per page (buttons < previous / next >).
+   Each ticket shows its number, type and the ordered items. CLICK A TICKET = ALPHA cooks exactly that order
+   (works for drive-thru too, whatever the Lab switch says). A ticket being built shows COOKING...
+ - The ticket pictures (ui_t_lobby/drive/pickup.png) are original artwork drawn for this project (not taken from the game).
+ - Files: new PNGs + 3 lines in hhbc_ui.rc (resources 116-118); rebuild the whole project.
+
+UPDATE 24
+ - Orders tickets: a ticket that is being cooked is now darkened as a whole (items stay readable),
+   the header says "- COOKING"; no overlay over the items any more.
+ - Oven trays: the TOP slot is aimed lower (the log showed 6 misses in a row at +0.35 above the trigger);
+   the height also varies on retries.
+ - Lab tab cleaned up: removed the ALPHA COOKING button (Alpha starts by clicking a ticket in the Orders bookmark),
+   the "normal / drive-thru" switch and the "Alpha keeps the stock ready" switch (it no longer restocks by itself).
+   The STOCK button, BETA CLOSEOUT and all other lab buttons stay.
+
+UPDATE 25
+ - Tickets: the text now uses ALL 7 ruled lines; long item names wrap to the next line, a smaller font is used for big orders,
+   "+N more lines" only if even that is not enough. Every ticket is also written to the log once ("ticket #id ... item(s): ...")
+   so a missing item can be checked.
+ - The big "COOKING..." label is back on the ticket that is being cooked (the ticket stays darkened).
+
